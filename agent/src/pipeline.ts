@@ -121,7 +121,15 @@ export class Pipeline {
         .run(o.FixtureId, o.Ts, JSON.stringify(o));
     }
     const c = this.ctx(o.FixtureId);
-    c.market = reduceMarket(c.market, o);
+    // λ calibration readings are only valid while the match state is still
+    // ≈ initial: kicked off, first ~10 minutes, score 0-0. Anything later
+    // (sparse corpora can start mid-match) would fit λ to an in-play price —
+    // audit finding: that poisoned a whole fixture's model.
+    const calibratable =
+      c.match.kickoff &&
+      c.match.scoreHome === 0 && c.match.scoreAway === 0 &&
+      estimateMinute(c.match, o.Ts) <= 10;
+    c.market = reduceMarket(c.market, o, calibratable);
 
     // Kickoff λ calibration from the first stable consensus (pre-match odds
     // do not exist on this tier — VERIFIED.md).
@@ -146,6 +154,9 @@ export class Pipeline {
   private lastSample = new Map<number, number>();
   private sampleSeries(c: FixtureCtx, frameTs: number): void {
     if (!c.match.kickoff || !c.market.latest) return;
+    // Freshness gate (audit): pairing a live model with a stale quote
+    // fabricates impossible rows in the calibration table.
+    if (frameTs - c.market.latest.frameTs > this.cfg.stalenessHaltSec * 1000) return;
     const last = this.lastSample.get(c.match.fixtureId) ?? 0;
     if (frameTs - last < 15_000) return;
     this.lastSample.set(c.match.fixtureId, frameTs);
@@ -167,6 +178,8 @@ export class Pipeline {
 
   private trackConvergence(c: FixtureCtx, frameTs: number): void {
     if (c.trackers.length === 0 || !c.market.latest) return;
+    // Same staleness rule as trading: never measure against an old quote.
+    if (frameTs - c.market.latest.frameTs > this.cfg.stalenessHaltSec * 1000) return;
     const model = this.modelProbs(c, frameTs);
     if (!model) return;
     const horizon = this.cfg.convergence.horizonMinutes * 60_000;
@@ -237,6 +250,9 @@ export class Pipeline {
   }
 
   private execute(strategy: string, t: Tick, intent: Intent, open: OpenPositionView[]): void {
+    // Circuit breaker: KILL_SWITCH halts ALL trading (ingest, measurement and
+    // the convergence study keep running — the tool never goes blind).
+    if (process.env.KILL_SWITCH === "1") return;
     if (!t.market) return;
     const price = t.market[intent.side];
     if (intent.action === "open") {

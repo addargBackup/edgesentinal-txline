@@ -98,7 +98,11 @@ export function initialMarket(fixtureId: number): MarketState {
 
 const is1x2 = (o: OddsPayload) => o.SuperOddsType === "1X2_PARTICIPANT_RESULT" && !o.MarketPeriod;
 
-export function reduceMarket(s: MarketState, o: OddsPayload): MarketState {
+/** `collectEarly` must only be true once the match has kicked off: corpus
+ *  backfills can contain stale pre-window quotes, and calibrating λ from them
+ *  poisons the model for the whole match (found in audit — the staleness
+ *  guard protected trades but not calibration). */
+export function reduceMarket(s: MarketState, o: OddsPayload, collectEarly: boolean): MarketState {
   if (!is1x2(o) || !o.PriceNames || !o.Pct) return s;
   const idx = (n: string) => o.PriceNames!.indexOf(n);
   const home = pctToProbability(o.Pct[idx("part1")] ?? "NA");
@@ -109,7 +113,7 @@ export function reduceMarket(s: MarketState, o: OddsPayload): MarketState {
   return {
     ...s,
     latest: p,
-    early: s.early.length < 5 ? [...s.early, { home, draw, away }] : s.early,
+    early: collectEarly && s.early.length < 5 ? [...s.early, { home, draw, away }] : s.early,
   };
 }
 

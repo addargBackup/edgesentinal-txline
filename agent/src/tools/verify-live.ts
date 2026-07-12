@@ -1,0 +1,13 @@
+import { Keypair } from "@solana/web3.js";
+import * as fs from "node:fs";
+import { createTxlineClient } from "@txline-kit/client";
+import { openDb } from "../db.js";
+import { verifySettlement } from "../settle.js";
+const wallet = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync("../.keys/devnet-wallet.json","utf8"))));
+const api = createTxlineClient({ network: "devnet", wallet });
+await api.auth.ensureActivated();
+const db = openDb(":memory:");
+db.prepare("INSERT INTO positions (strategy, fixture_id, side, entry_prob, stake, opened_ts, closed_ts, pnl, settled) VALUES ('sniper', 18213979, 'away', 0.5, 10, 1, 2, 10, 1)").run();
+await verifySettlement(db, api, 18213979, 1184, { home: 0, away: 1 } as any);
+const row = db.prepare("SELECT verified, event_stat_root FROM positions WHERE fixture_id = 18213979").get();
+console.log("position verified:", row);

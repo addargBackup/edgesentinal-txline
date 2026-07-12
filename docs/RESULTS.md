@@ -1,11 +1,11 @@
 # Backtest results (generated — honest numbers, whatever they are)
 
-Fixtures: 18175918, 18209181 · generated 2026-07-12T12:26:10.526Z
+Fixtures: 18175918, 18209181 · generated 2026-07-12T17:51:47.221Z
 
 | strategy | positions | hit rate | P&L (units) | max drawdown |
 |---|---|---|---|---|
-| baseline | 1 | 100% | 1.14 | 0 |
-| divergence | 2 | 0% | -17.54 | 17.54 |
+| baseline | 2 | 100% | 1.05 | 0 |
+| divergence | 2 | 0% | -10.51 | 10.51 |
 | sniper | 1 | 0% | 0 | 0 |
 
 Interpretation guide: `baseline` is the control arm (kickoff favorite,
@@ -17,10 +17,10 @@ the post-shock repricing window measured in CONVERGENCE.md.
 
 | bucket | n | model avg | market avg | realized home-win |
 |---|---|---|---|---|
-| 0.0–0.2 | 142 | 0.020 | 0.139 | 1.000 |
-| 0.2–0.4 | 56 | 0.332 | 0.526 | 1.000 |
-| 0.4–0.6 | 309 | 0.496 | 0.608 | 1.000 |
-| 0.6–0.8 | 67 | 0.727 | 0.754 | 1.000 |
-| 0.8–1.0 | 454 | 0.938 | 0.766 | 1.000 |
+| 0.0–0.2 | 65 | 0.046 | 0.267 | 1.000 |
+| 0.2–0.4 | 65 | 0.332 | 0.533 | 1.000 |
+| 0.4–0.6 | 302 | 0.492 | 0.610 | 1.000 |
+| 0.6–0.8 | 55 | 0.738 | 0.768 | 1.000 |
+| 0.8–1.0 | 320 | 0.921 | 0.915 | 1.000 |
 
 _Realized column is per-sample (fixture outcome repeated across its samples); with few fixtures it validates direction, not magnitude — more corpus fixtures sharpen it._
