@@ -89,20 +89,25 @@ export class Pipeline {
         .run(u.FixtureId, u.Ts, JSON.stringify(u));
     }
     const c = this.ctx(u.FixtureId);
-    const marketBefore = c.market.latest?.home ?? null;
+    // Freshness rule applies to shock capture too: gap0 vs a stale quote is
+    // fiction. Record the shock with NULL market context instead of lying.
+    const fresh = c.market.latest && u.Ts - c.market.latest.frameTs <= this.cfg.stalenessHaltSec * 1000;
+    const marketBefore = fresh ? c.market.latest!.home : null;
     const { state, shocks } = reduceMatch(c.match, u);
     c.match = state;
 
     for (const shock of shocks) {
       const modelAfter = this.modelProbs(c, shock.frameTs)?.home ?? null;
-      const gap0 = modelAfter !== null && marketBefore !== null ? modelAfter - marketBefore : 0;
+      const gap0 = modelAfter !== null && marketBefore !== null ? modelAfter - marketBefore : null;
       const row = this.db.prepare(
         `INSERT INTO shocks (fixture_id, kind, frame_ts, minute, market_before, model_after, gap0)
          VALUES (?,?,?,?,?,?,?)`,
       ).run(u.FixtureId, shock.kind, shock.frameTs, shock.minute, marketBefore, modelAfter, gap0);
-      c.trackers.push({ rowId: Number(row.lastInsertRowid), shock, gap0, samples: [], halfLifeMs: null, convergedMs: null });
-      c.recentShock = { ...shock, gapAtShock: gap0 };
-      this.events.log?.("shock", { fixtureId: u.FixtureId, ...shock, gap0: gap0.toFixed(4) });
+      if (gap0 !== null) {
+        c.trackers.push({ rowId: Number(row.lastInsertRowid), shock, gap0, samples: [], halfLifeMs: null, convergedMs: null });
+      }
+      c.recentShock = { ...shock, gapAtShock: gap0 ?? 0 };
+      this.events.log?.("shock", { fixtureId: u.FixtureId, ...shock, gap0: gap0?.toFixed(4) ?? "n/a (stale market)" });
     }
 
     this.tick(c, u.Ts);

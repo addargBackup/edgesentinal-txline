@@ -1,6 +1,6 @@
 # Backtest results (generated — honest numbers, whatever they are)
 
-Fixtures: 18175918, 18209181 · generated 2026-07-12T17:51:47.221Z
+Fixtures: 18175918, 18209181 · generated 2026-07-12T17:54:32.238Z
 
 | strategy | positions | hit rate | P&L (units) | max drawdown |
 |---|---|---|---|---|
