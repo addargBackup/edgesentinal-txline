@@ -1,0 +1,29 @@
+# EdgeSentinel strategy configuration — retune without touching code.
+bankroll: 1000            # paper units
+kellyK: 0.25              # fractional Kelly multiplier
+maxStakePerPosition: 50
+maxExposurePerFixture: 150
+
+model:
+  maxGoals: 12            # Poisson double-sum truncation
+  redCardSelf: 0.70       # carded team remaining-intensity multiplier
+  redCardOpp: 1.10
+
+divergence:               # steady-state strategy (the honest control-arm)
+  entryGap: 0.06
+  exitGap: 0.02
+  minMinute: 5
+  maxMinute: 80
+
+sniper:                   # the flagship: post-shock repricing window
+  entryGap: 0.05          # model-vs-market gap right after a shock
+  convergedGap: 0.015     # exit when the market has absorbed the shock
+  timeoutMinutes: 10
+  windowMinutes: 3        # shock is tradeable this long after it happens
+
+convergence:              # measurement (independent of trading)
+  epsilon: 0.02
+  horizonMinutes: 15
+
+stalenessHaltSec: 120     # circuit breaker: halt fixture on stale streams
+commitDecisions: false    # true = sha256 of each decision -> devnet Memo tx

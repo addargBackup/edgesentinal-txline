@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>EdgeSentinel — ops</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; padding: 20px; background: #0b0e14; color: #e5e7eb; font: 14px/1.45 ui-sans-serif, system-ui; }
+  h1 { font-size: 20px; margin: 0 0 2px; } .sub { color: #6b7280; font-size: 12px; margin-bottom: 16px; }
+  .grid { display: grid; gap: 14px; grid-template-columns: 1fr; max-width: 1100px; }
+  @media (min-width: 900px) { .grid { grid-template-columns: 1.4fr 1fr; } }
+  .card { background: #111624; border: 1px solid #232c43; border-radius: 12px; padding: 14px; }
+  .card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: #9ca3af; margin: 0 0 10px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid #1c2438; }
+  th { color: #6b7280; font-weight: 600; }
+  .pos { color: #4ade80; } .neg { color: #f87171; } .muted { color: #6b7280; }
+  select { background: #0b0e14; color: #e5e7eb; border: 1px solid #232c43; border-radius: 8px; padding: 4px 8px; }
+  .legend { font-size: 11px; color: #9ca3af; margin-top: 4px; }
+  .badge { font-size: 10px; border-radius: 4px; padding: 1px 5px; background: #14532d; color: #86efac; }
+</style>
+</head>
+<body>
+<h1>EdgeSentinel <span style="color:#4ade80">ops</span></h1>
+<div class="sub">read-only · autonomy means no buttons · model vs TxLINE StablePrice, shock convergence, tamper-evident ledger</div>
+
+<div class="grid">
+  <div class="card">
+    <h2>Model vs market — home win probability <select id="fixtureSel"></select></h2>
+    <svg id="chart" viewBox="0 0 720 260" width="100%"></svg>
+    <div class="legend">— model (green) · — market (blue) · shaded = divergence · ▲ shocks (goals/reds)</div>
+  </div>
+  <div>
+    <div class="card">
+      <h2>Strategy league table (the arena)</h2>
+      <table id="league"><tr><th>strategy</th><th>positions</th><th>wins</th><th>P&amp;L</th></tr></table>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <h2>Shock convergence (latest)</h2>
+      <table id="shocks"><tr><th>fixture</th><th>shock</th><th>min</th><th>gap₀</th><th>half-life</th><th>converged</th></tr></table>
+    </div>
+  </div>
+  <div class="card" style="grid-column: 1 / -1">
+    <h2>Ledger (paper · settlement proof-verified where badged)</h2>
+    <table id="ledger"><tr><th>strategy</th><th>fixture</th><th>side</th><th>entry</th><th>exit</th><th>stake</th><th>P&amp;L</th><th></th></tr></table>
+  </div>
+</div>
+
+<script>
+const s = (ms) => ms == null ? "—" : (ms/1000).toFixed(0) + "s";
+async function refresh() {
+  const d = await (await fetch("/api/summary")).json();
+  league.innerHTML = "<tr><th>strategy</th><th>positions</th><th>wins</th><th>P&L</th></tr>" +
+    d.league.map(r => `<tr><td>${r.strategy}</td><td>${r.positions}</td><td>${r.wins}</td>
+      <td class="${r.pnl >= 0 ? "pos" : "neg"}">${r.pnl}</td></tr>`).join("");
+  shocks.innerHTML = "<tr><th>fixture</th><th>shock</th><th>min</th><th>gap₀</th><th>half-life</th><th>converged</th></tr>" +
+    d.shocks.map(r => `<tr><td class="muted">${r.fixtureId}</td><td>${r.kind}</td><td>${Math.round(r.minute)}'</td>
+      <td>${r.gap0}</td><td>${s(r.halfLifeMs)}</td><td>${s(r.convergedMs)}</td></tr>`).join("");
+  ledger.innerHTML = "<tr><th>strategy</th><th>fixture</th><th>side</th><th>entry</th><th>exit</th><th>stake</th><th>P&L</th><th></th></tr>" +
+    d.ledger.map(r => `<tr><td>${r.strategy}</td><td class="muted">${r.fixtureId}</td><td>${r.side}</td>
+      <td>${r.entry ?? "—"}</td><td>${r.exit ?? "open"}</td><td>${r.stake}</td>
+      <td class="${(r.pnl ?? 0) >= 0 ? "pos" : "neg"}">${r.pnl ?? "—"}</td>
+      <td>${r.verified ? '<span class="badge">proof ✓</span>' : ""}</td></tr>`).join("");
+  const sel = fixtureSel;
+  const prev = sel.value;
+  sel.innerHTML = d.fixtures.map(f => `<option>${f.fixtureId}</option>`).join("");
+  if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
+  if (sel.value) drawChart(sel.value);
+}
+async function drawChart(fixtureId) {
+  const { series, shocks } = await (await fetch("/api/series/" + fixtureId)).json();
+  const svg = chart; const W = 720, H = 260, L = 34, B = 22;
+  if (!series.length) { svg.innerHTML = ""; return; }
+  const maxMin = Math.max(...series.map(p => p.minute), 90);
+  const x = m => L + (m / maxMin) * (W - L - 8);
+  const y = p => (H - B) - p * (H - B - 8);
+  const path = (key) => series.filter(p => p[key] != null)
+    .map((p, i) => `${i ? "L" : "M"}${x(p.minute).toFixed(1)},${y(p[key]).toFixed(1)}`).join("");
+  const band = series.filter(p => p.model != null && p.market != null);
+  const bandPath = band.map((p, i) => `${i ? "L" : "M"}${x(p.minute).toFixed(1)},${y(p.model).toFixed(1)}`).join("")
+    + band.slice().reverse().map(p => `L${x(p.minute).toFixed(1)},${y(p.market).toFixed(1)}`).join("") + "Z";
+  svg.innerHTML = `
+    ${[0, .25, .5, .75, 1].map(v => `<line x1="${L}" y1="${y(v)}" x2="${W - 8}" y2="${y(v)}" stroke="#1c2438"/>
+      <text x="4" y="${y(v) + 4}" fill="#4b5563" font-size="10">${v}</text>`).join("")}
+    <path d="${bandPath}" fill="#4ade80" opacity="0.10"/>
+    <path d="${path("market")}" fill="none" stroke="#60a5fa" stroke-width="1.6"/>
+    <path d="${path("model")}" fill="none" stroke="#4ade80" stroke-width="1.6"/>
+    ${shocks.map(sh => `<path d="M${x(sh.minute) - 5},${H - B + 12} l5,-9 l5,9 z" fill="#f59e0b"><title>${sh.kind} ${Math.round(sh.minute)}'</title></path>`).join("")}
+    ${[0, 15, 30, 45, 60, 75, 90].map(m => `<text x="${x(m)}" y="${H - 4}" fill="#4b5563" font-size="10" text-anchor="middle">${m}'</text>`).join("")}`;
+}
+fixtureSel.onchange = () => drawChart(fixtureSel.value);
+refresh(); setInterval(refresh, 5000);
+</script>
+</body>
+</html>

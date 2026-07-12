@@ -1,0 +1,23 @@
+{
+  "name": "@txline-kit/replay",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "txline-replay": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.98.0",
+    "@txline-kit/client": "workspace:*"
+  }
+}

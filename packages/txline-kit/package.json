@@ -1,0 +1,20 @@
+{
+  "name": "txline-kit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "TypeScript SDK + data toolkit for the TxLINE sports data API (TxODDS)",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc -b packages/constants packages/client packages/replay",
+    "test": "vitest run",
+    "clean": "rm -rf packages/*/dist packages/*/*.tsbuildinfo"
+  },
+  "devDependencies": {
+    "@solana/web3.js": "^1.98.4",
+    "@types/node": "^22.10.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
+  }
+}

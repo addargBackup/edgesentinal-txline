@@ -1,0 +1,23 @@
+{
+  "name": "edgesentinel",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Autonomous strategy-evaluation framework for in-play soccer markets on TxLINE feeds — with a StablePrice shock-convergence study and a tamper-evident on-chain decision record.",
+  "license": "MIT",
+  "scripts": {
+    "agent": "tsx agent/src/index.ts",
+    "backtest": "tsx agent/src/backtest.ts",
+    "verify-commitments": "tsx agent/src/verify-commitments.ts",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["better-sqlite3"]
+  }
+}
