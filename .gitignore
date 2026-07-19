@@ -4,3 +4,4 @@ node_modules/
 .DS_Store
 edgesentinel.db*
 agent/dist/
+docs/DEMO_SCRIPT.md
