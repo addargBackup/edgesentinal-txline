@@ -1,8 +1,14 @@
 {
   "name": "@txline-kit/replay",
   "version": "0.1.0",
+  "description": "Wire-compatible replay server for TxLINE match data — fetch historical fixtures and replay them at any speed for demos, backtests, and CI",
   "type": "module",
+  "author": "addargBackup (https://x.com/addarg7)",
   "license": "MIT",
+  "keywords": ["txline", "txodds", "sports-data", "soccer", "replay", "backtest", "world-cup"],
+  "repository": { "type": "git", "url": "git+https://github.com/addargBackup/txline-kit.git", "directory": "packages/replay" },
+  "homepage": "https://github.com/addargBackup/txline-kit#readme",
+  "bugs": "https://github.com/addargBackup/txline-kit/issues",
   "bin": {
     "txline-replay": "./dist/cli.js"
   },

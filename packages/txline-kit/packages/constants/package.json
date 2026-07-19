@@ -1,8 +1,14 @@
 {
   "name": "@txline-kit/constants",
   "version": "0.1.0",
+  "description": "Stat-key algebra, game phases, event enums, and odds math for the TxLINE sports data API",
   "type": "module",
+  "author": "addargBackup (https://x.com/addarg7)",
   "license": "MIT",
+  "keywords": ["txline", "txodds", "sports-data", "soccer", "odds", "world-cup"],
+  "repository": { "type": "git", "url": "git+https://github.com/addargBackup/txline-kit.git", "directory": "packages/constants" },
+  "homepage": "https://github.com/addargBackup/txline-kit#readme",
+  "bugs": "https://github.com/addargBackup/txline-kit/issues",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

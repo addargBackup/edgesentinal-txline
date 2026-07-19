@@ -1,8 +1,14 @@
 {
   "name": "@txline-kit/client",
   "version": "0.1.0",
+  "description": "TypeScript client for the TxLINE sports data API: auth, typed REST, self-healing SSE streams, and Merkle-proof helpers for the txoracle Solana program",
   "type": "module",
+  "author": "addargBackup (https://x.com/addarg7)",
   "license": "MIT",
+  "keywords": ["txline", "txodds", "sports-data", "soccer", "solana", "merkle-proof", "world-cup"],
+  "repository": { "type": "git", "url": "git+https://github.com/addargBackup/txline-kit.git", "directory": "packages/client" },
+  "homepage": "https://github.com/addargBackup/txline-kit#readme",
+  "bugs": "https://github.com/addargBackup/txline-kit/issues",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

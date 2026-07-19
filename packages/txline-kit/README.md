@@ -13,7 +13,10 @@ Packages (pnpm workspace):
 | `@txline-kit/constants` | stat-key algebra, game phases, event enums, odds math, market discovery |
 | `@txline-kit/replay` | `txline-replay fetch/serve` — historical corpus + wire-compatible replay |
 
-Ground truth for every encoding and flow is documented in [docs/VERIFIED.md](docs/VERIFIED.md).
+**New to the TxLINE API?** Read the [**TxLINE API Field Guide**](docs/VERIFIED.md)
+first — the sharp edges (PascalCase records, phase in `StatusId`, `/historical`
+returning SSE not JSON, pre-match odds not existing, the `period == 100`
+settlement rule), mapped from live data so you don't hit them the hard way.
 
 ## Quickstart
 

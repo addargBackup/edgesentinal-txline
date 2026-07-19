@@ -1,158 +1,196 @@
-# VERIFIED.md — resolved API ambiguities (ground truth for all three projects)
+# TxLINE API Field Guide
 
-Source of truth: `vendor/docs.yaml` (OpenAPI 1.5.2, fetched 2026-07-11),
-`tx-on-chain` examples repo (github.com/txodds/tx-on-chain, cloned 2026-07-11),
-devnet IDL `txoracle.json` v1.5.5, and live smoke tests against
-`txline-dev.txodds.com`.
+The sharp edges of the [TxLINE](https://txline.txodds.com) sports-data API,
+mapped so you don't have to learn them the hard way. Every item here was
+confirmed against live devnet data and the on-chain `txoracle` IDL — not just
+read off the schema. Where the raw API surprises you, the note ends with the
+[`txline-kit`](https://github.com/addargBackup/txline-kit) helper that already
+handles it.
 
-## (a) validate_stat semantics — RESOLVED (design-correcting!)
-The earlier assumption "operator compares stat1 vs stat2" was WRONG. Actual IDL:
+> TL;DR of the gotchas: live records are **PascalCase**, match phase lives in
+> **`StatusId`** (not `GameState`), `/scores/historical` returns **SSE text on a
+> 200** (not JSON), pre-match **odds don't exist**, and on-chain settlement is
+> only sound if you check **`stat.period == 100`**.
+
+---
+
+## Auth & activation
+
+Two credentials ride on every data request: a short-lived guest **JWT** and a
+long-lived **API token**.
+
+1. `POST {host}/auth/guest/start` → `{ "token": "<jwt>" }` (no body needed). The
+   JWT expires in ~30 days; on a `401`, renew from the **same host** and keep
+   your API token.
+2. Activation is on-chain: ensure the Token-2022 ATA for the TxL mint exists,
+   call `subscribe(serviceLevelId, weeks)` (weeks must be a multiple of 4;
+   PDAs `["pricing_matrix"]` and `["token_treasury_v2"]`), then
+   `POST /api/token/activate` with body `{ txSig, walletSignature, leagues }`
+   and a `Bearer <jwt>` header. `walletSignature` is a base64
+   `nacl.sign.detached` over the string `` `${txSig}:${leagues.join(",")}:${jwt}` ``.
+3. Free World Cup tier: `serviceLevel 1`, `weeks 4`, `leagues []`.
+
+Every request needs **both** `Authorization: Bearer <jwt>` **and** `X-Api-Token`.
+A `403` almost always means you crossed devnet/mainnet credentials.
+
+→ `txline-kit`: `await tx.auth.ensureActivated()` runs the whole flow once and
+caches credentials; 401s renew transparently, single-flight.
+
+---
+
+## Score records
+
+**Field names are PascalCase on the wire.** Live records look like
+`{ FixtureId, GameState, StartTime, Action, Ts, Seq, StatusId, Score, Stats,
+PlayerStats, Data, ... }` — *not* the camelCase some doc prose implies. Code to
+the schema casing and your parser silently returns `undefined`.
+
+**Match phase is in `StatusId`, not `GameState`.** `GameState` can sit on
+`"scheduled"` for an entire live match (it's a coverage/schedule field). The
+real phase progression is `StatusId`:
+`null → 1 (NS) → 2 (H1) → 3 (HT) → 4 (H2) → 5 (F) → 100 (game_finalised)`.
+Finality is the single record with `Action = "game_finalised"` and
+`StatusId = 100`.
+
+**`Stats` is a flat map of composed stat-key → cumulative value**, for every
+period prefix at once, e.g. `{"1":2,"2":0,"7":5,"1007":3,"3007":2,...}`.
+A resolution engine just reads `Stats` — no event replay needed. Keys are
+`period_prefix + base` (base 1-8 = goals/yellows/reds/corners per team; prefix
+0 = total, 1000 = H1, 3000 = H2, etc., so `3007` = 2nd-half home corners).
+
+**The `Clock` field exists in the schema but was not populated** across a full
+finished match (0 of 1,116 updates). If you need a match minute, estimate it
+from `StatusId` transitions (H1/H2 start anchors) plus record timestamps.
+
+→ `txline-kit`: `@txline-kit/constants` gives `STAT`, `PERIOD`,
+`statKey()`/`parseStatKey()`, and `isLive()`/`isFinalised()` that read the
+right field.
+
+---
+
+## Odds records
+
+**Pre-match odds do not exist on the free tier.** `oddsSnapshot` returns `[]`
+both before kickoff and after full time. StablePrice coverage is **in-play
+only** — and dense: a single match yielded 66k+ records across ~53 markets
+(1X2, over/under goals across many lines, Asian handicaps), full-match and
+per-half.
+
+**Use `Pct`, not `Prices`, for probability.** Each record carries
+`PriceNames[]`, `Prices[]`, and `Pct[]`. `Pct` is the **de-margined** implied
+probability as a 3-dp string (`"52.632"`), or `"NA"` on quarter-handicap lines.
+`Bookmaker` is `"TXLineStablePriceDemargined"`. `MarketParameters` looks like
+`"line=2.5"`, `MarketPeriod` like `"half=1"`.
+
+**Discover markets, don't assume them.** Market availability varies per fixture;
+group records by `(SuperOddsType, MarketPeriod, MarketParameters)`.
+
+→ `txline-kit`: `pctToProbability()` and `discoverMarkets()` in
+`@txline-kit/constants`.
+
+---
+
+## Streams (SSE)
+
+- `/api/scores/stream` and `/api/odds/stream`. Data messages carry
+  `id = "timestamp:index"` and a single JSON record as `data`. Heartbeats are
+  `event: heartbeat`.
+- The `Last-Event-ID` header resumes a stream where it dropped — use it, or a
+  reconnect loses events. Optional `?fixtureId=` filters server-side.
+- A stream that's open but silent outside a live match window is **normal**, not
+  an error.
+
+→ `txline-kit`: `tx.scoresStream()` / `tx.oddsStream()` are async iterables with
+jittered-backoff reconnect, `Last-Event-ID` resume, and reader cleanup on early
+`break`.
+
+---
+
+## The one that isn't JSON
+
+`GET /api/scores/historical/{fixtureId}` returns **SSE-framed text**
+(`data: {...}\n\n` frames) on a `200`, unlike every sibling endpoint. A naïve
+`JSON.parse` throws on a successful response. (It returns the full update
+sequence, valid when the match start is between ~2 weeks and ~6 hours in the
+past.)
+
+→ `txline-kit`: the client auto-detects and parses this into a normal array.
+
+---
+
+## On-chain validation (`txoracle`)
+
+The real `validate_stat` grammar — confirmed from the IDL, and *not* quite what
+the prose suggests:
 
 ```
 validate_stat(
   ts: i64,                              // must equal summary.updateStats.minTimestamp
-  fixture_summary: ScoresBatchSummary,  // { fixture_id: i64, update_stats, events_sub_tree_root: [u8;32] }
+  fixture_summary: ScoresBatchSummary,
   fixture_proof: Vec<ProofNode>,
   main_tree_proof: Vec<ProofNode>,
-  predicate: TraderPredicate,           // { threshold: i32, comparison: GreaterThan|LessThan|EqualTo }
-  stat_a: StatTerm,                     // { stat_to_prove: ScoreStat, event_stat_root: [u8;32], stat_proof }
+  predicate: TraderPredicate,           // { threshold: i32, comparison: GreaterThan | LessThan | EqualTo }
+  stat_a: StatTerm,
   stat_b: Option<StatTerm>,
   op: Option<BinaryExpression>,         // Add | Subtract
-) -> bool                               // accounts: { daily_scores_merkle_roots }
+) -> bool                               // account: daily_scores_merkle_roots
 ```
-Semantics: `combined = stat_a.value (op stat_b.value)?`, then `combined <comparison> threshold`.
-- 1X2 home win:  stat_a=T1 goals, stat_b=T2 goals, op=Subtract, GreaterThan 0
-- 1X2 draw:      same, EqualTo 0;  away win: LessThan 0
-- Total O/U 2.5: op=Add, GreaterThan 2 (over) / LessThan 3 (under)
 
-validate_stat_v2(payload: StatValidationInput, strategy: NDimensionalStrategy):
-- StatValidationInput { ts, fixture_summary, fixture_proof, main_tree_proof,
-  event_stat_root: [u8;32], stats: Vec<StatLeaf{ stat, stat_proof }> }
-- NDimensionalStrategy { geometric_targets: Vec<{stat_index:u8, prediction:i32}>,
-  distance_predicate: Option<TraderPredicate>,
-  discrete_predicates: Vec<StatPredicate> }
-- StatPredicate = Single{index, predicate} | Binary{index_a, index_b, op, predicate}
-- indexes refer to POSITIONS in the requested statKeys list, not key values.
-- Geometric targets + distance predicate = "prediction closeness" primitive
-  (e.g. closest-scoreline markets). Every requested stat must be covered.
+Semantics: `combined = stat_a.value (op stat_b.value)?`, then
+`combined <comparison> threshold`. So:
+- **1X2 home win** — `stat_a` = T1 goals, `stat_b` = T2 goals, `op = Subtract`, `GreaterThan 0` (draw = `EqualTo 0`, away = `LessThan 0`)
+- **Total goals over 2.5** — `op = Add`, `GreaterThan 2`
 
-Working call pattern (from subscription_scores_1stat.ts): map API proof hashes with
-`Array.from(n.hash)` (API returns byte arrays), `new BN()` for i64 fields, rename
-`summary.eventStatsSubTreeRoot` -> `eventsSubTreeRoot`, PDA
-`[Buffer.from("daily_scores_roots"), new BN(epochDay).toBuffer("le", 2)]` where
-`epochDay = floor(summary.updateStats.minTimestamp / 86_400_000)`. Read-only check via
-`.methods.validateStatV2(payload, strategy).accounts({dailyScoresMerkleRoots}).view()`
-with a 1_400_000 compute-unit budget preInstruction. CPI works the same from a program.
+`validate_stat_v2(payload, strategy)` takes an `NDimensionalStrategy` whose
+predicate indexes refer to **positions in the requested `statKeys` list**, not
+key values, and every requested stat must be covered.
 
-## LIVE-DATA FINDINGS (2026-07-11, fixture 18209181 France vs Morocco, finished 2-0)
+**The soundness rule that isn't in the docs:** a proven stat carries
+`period == 100` **only** in the `game_finalised` record. A mid-match proof
+carries the live phase id instead (e.g. `period: 4` during H2). If your
+settlement logic doesn't require `period == 100`, someone can settle a market
+on a *halftime* score. This one check is the difference between a sound
+settlement engine and a exploitable one.
 
-### Score records are PascalCase and carry a full Stats map
-Live records: `{FixtureId, GameState, StartTime, Action, Ts, Seq, StatusId, Score,
-Stats, PlayerStats, Data, ...}` — PascalCase, NOT the camelCase in older doc prose.
-`Stats` = map of composed statKey -> cumulative value for EVERY period prefix, e.g.
-`{"1":2,"2":0,"7":5,"1007":3,"3007":2,...}`. Resolution engines just read Stats.
+**Proofs are small** — a two-stat final proof is ~500 bytes of borsh, so on-chain
+settlement fits comfortably in one transaction. Read-only verification:
+`program.methods.validateStatV2(payload, strategy)
+.accounts({ dailyScoresMerkleRoots }).view()` with a ~1.4M compute-unit budget
+pre-instruction. The daily-roots PDA is
+`["daily_scores_roots", epochDay as u16 LE]` where
+`epochDay = floor(summary.updateStats.minTimestamp / 86_400_000)`.
 
-### Phase lives in StatusId, NOT GameState
-`GameState` stayed "scheduled" all match (it's a coverage/schedule field).
-Observed StatusId sequence: null(pre) -> 1(NS) -> 2(H1) -> 3(HT) -> 4(H2) -> 5(F)
--> 100(game_finalised, exactly one record, Action="game_finalised").
-Track phases via StatusId with the PHASE constants; finality via isFinalised().
+→ `txline-kit`: `@txline-kit/client/proofs` ships `toBytes32`, `toProofNodes`,
+`buildStatValidationInput`, the `strategy` builders, and `dailyScoresRootsPda`.
 
-### CRITICAL SOUNDNESS RULE: stat.period == 100 marks finality
-statsToProve from the FINAL seq: `{"key":1,"value":2,"period":100}` (period=100
-even for H1 keys like 1001). From a MID-MATCH seq (H2, score 1-0):
-`{"key":1,"value":1,"period":4}` — period = phase id of the proven record.
-=> An on-chain settle instruction MUST require stat.period == 100; that makes
-mid-match proofs unusable for settlement. Also: `key` is the FULL composed statKey
-(request 1001 -> key 1001), so match keys exactly against the market spec.
+---
 
-### Proofs are tiny — single-tx settlement is viable
-Final-seq proof for statKeys=1,2,1001: subTree=1 node, mainTree=1 node,
-statProofs=[4,2,2] nodes; ~534 bytes of borsh payload. Note the proof summary's
-updateStats covers a batch (updateCount=1 here); ts arg = its minTimestamp.
+## Endpoints worth knowing
 
-### (c) Clock: NOT populated
-0 of 1116 updates had Clock set. Estimate match time from StatusId transitions
-(H1 start / HT / H2 start anchors) + event record Ts (+ Data.Minutes when present).
+Beyond the headline snapshot/stream/validation routes, these exist and are
+useful:
+- `/api/{scores,odds}/updates/{epochDay}/{hourOfDay}/{interval}` — time-bucketed
+  history; `interval` is the 0-indexed **5-minute** slot within the hour (0-11).
+  This is how you backfill in-play odds for a finished match.
+- `/api/fixtures/validation`, `/api/fixtures/batch-validation` — fixture proofs.
+- `/api/odds/validation` → `validate_odds` — yes, odds updates are Merkle-provable
+  too, not just scores.
 
-### (d) Odds: rich IN-PLAY only; snapshots empty pre-match and post-match
-oddsSnapshot returned 0 records both for a finished match and an upcoming one
-(19h before kickoff). But the 5-minute bucket endpoints during the match window
-yielded 66,337 StablePrice records: 53 distinct markets — 1X2_PARTICIPANT_RESULT
-(full + half=1), OVERUNDER_PARTICIPANT_GOALS (lines 0.5..4+, full + half=1),
-ASIANHANDICAP_PARTICIPANT_GOALS (many lines). PriceNames: [part1,draw,part2] /
-[over,under]. Bookmaker="TXLineStablePriceDemargined". `Prices` = decimal odds
-x1000 (e.g. 1518 = 1.518); `Pct` = de-margined percentages, "NA" on AH quarter
-lines. MarketParameters like "line=2.5"; MarketPeriod like "half=1".
+---
 
-### (e) CONFIRMED: World Cup competitionId = 72
-38 fixtures returned incl. France vs Morocco, Argentina fixtures, etc.
-Upcoming (as of 2026-07-11): 18213979 Norway vs England (Jul 11 21:00 UTC),
-18222446 Argentina vs Switzerland, 18237038 France vs Spain.
+## Constants
 
-### /api/scores/historical returns SSE-FORMATTED TEXT, not JSON
-Body is "data: {...}\n\n" frames. The kit's fetchJson auto-detects and parses
-this (parseJsonOrSseBody). Log in FEEDBACK.md.
+| | devnet | mainnet |
+|---|---|---|
+| API base | `https://txline-dev.txodds.com/api` | `https://txline.txodds.com/api` |
+| `txoracle` program | `6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J` | `9ExbZjAapQww1vfcisDmrngPinHTEfpjYRWMunJgcKaA` |
+| free World Cup tier | level 1 — 0s delay | level 1 (60s) / level 12 (real-time) |
 
-## (b) period-prefix 0 meaning — PARTIAL
-ScoreStat = { key, value, period } — period is a SEPARATE field on the stat, and
-period prefixes (1000/2000/...) encode into the requested statKey. ETTotal (7000)
-existing separately implies prefix-0 "Total" = regulation. CONFIRM against a
-finished ET match once activated. Until then: settle 1X2 on prefix-0 keys and
-document "90-minute result" convention.
+World Cup `competitionId = 72`. Never mix networks: JWT, API token, program id,
+and IDL must all come from the same side.
 
-## (c) clock data — MOSTLY RESOLVED (verify live)
-The Scores schema includes `SoccerFixtureClock { running: bool, seconds: i32 }`
-(field `clock`), and SoccerData events carry `Minutes: i32`. So a real clock likely
-EXISTS — EdgeSentinel may not need phase-interpolation. Verify populated values on
-live/historical data after activation.
+---
 
-## (d) market availability — PENDING ACTIVATION
-Odds payload confirmed: { FixtureId, MessageId, Ts, Bookmaker, BookmakerId,
-SuperOddsType, GameState, InRunning, MarketParameters, MarketPeriod,
-PriceNames[], Prices[] (int32), Pct[] ("52.632" strings, 3dp, de-margined, or "NA") }.
-Market discovery = group by (SuperOddsType, MarketPeriod, MarketParameters).
-Prices int scaling unverified — use Pct for probabilities (it's authoritative and
-de-margined). Enumerate actual World Cup markets after activation.
-
-## (e) World Cup competitionId — PROBABLE: 72
-subscription_free_tier.ts queries `/fixtures/snapshot?competitionId=72&startEpochDay=20624`
-(epochDay 20624 ≈ 2026-06-16, World Cup window). Treat 72 as the World Cup id;
-confirm from a snapshot after activation.
-
-## Auth flow — RESOLVED + smoke-tested
-- `POST {host}/auth/guest/start` → `{ "token": "<jwt>" }` (LIVE-VERIFIED on devnet,
-  no body needed). JWT expires in 30 days; renew on 401 (same host), keep API token.
-- Activation: ensure Token-2022 ATA for TxL mint exists → `subscribe(serviceLevelId: number,
-  weeks: number)` accounts { user, pricingMatrix PDA ["pricing_matrix"], tokenMint,
-  userTokenAccount, tokenTreasuryVault (ATA of treasury PDA), tokenTreasuryPda
-  ["token_treasury_v2"], TOKEN_2022, ASSOCIATED_TOKEN, SystemProgram } → confirmed txSig
-  → sign `${txSig}:${leagues.join(",")}:${jwt}` with nacl.sign.detached, base64 →
-  `POST /api/token/activate` body `{ txSig, walletSignature, leagues }` header Bearer jwt
-  → response `{ token }` (or raw token) = API token.
-- Free tier: serviceLevel 1, weeks 4 (must be multiple of 4), leagues [].
-- Pricing matrix on-chain account lists rows { rowId, pricePerWeekToken,
-  samplingIntervalSec, leagueBundleId, marketBundleId }.
-
-## Streams — RESOLVED from spec
-- `/api/scores/stream`, `/api/odds/stream`; data messages: `id` = `timestamp:index`,
-  `data` = one Scores/OddsPayload JSON. Heartbeats: `event: heartbeat`, data like {"Ts": ...}.
-- `Last-Event-ID` header resumes a stream. Optional `?fixtureId=` filters server-side.
-- Time-bucket endpoints: interval = 0-indexed 5-MINUTE slot within the hour (0-11).
-- `/api/scores/historical/{fixtureId}`: full update sequence, valid when start time
-  is between 2 weeks and 6 hours in the past.
-
-## Extra endpoints not in the marketing docs
-`/api/fixtures/updates/{epochDay}/{hourOfDay}`, `/api/fixtures/validation`,
-`/api/fixtures/batch-validation`, `/api/odds/updates/{fixtureId}`, `/api/odds/validation`
-(odds proofs → validate_odds instruction — odds receipts are possible, not just scores).
-
-## Network constants
-- devnet: api `https://txline-dev.txodds.com/api`, auth `.../auth/guest/start`,
-  program `6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J`,
-  TxL mint `4Zao8ocPhmMgq7PdsYWyxvqySMGx7xb9cMftPMkEokRG`, free level 1 (0s delay).
-- mainnet: api `https://txline.txodds.com/api`,
-  program `9ExbZjAapQww1vfcisDmrngPinHTEfpjYRWMunJgcKaA`,
-  TxL mint `Zhw9TVKp68a1QrftncMSd6ELXKDtpVMNuMGr1jNwdeL`, free levels 1 (60s) / 12 (real-time).
-- Wallet: `.keys/devnet-wallet.json` → 3B9AdYMQuUBRynyuMkCmcVn7yfkqWZutWgPjb5oTWiyV
-  (devnet airdrop pending/rate-limited).
+*Compiled while building three apps on this feed. If TxLINE changes a behavior
+here, [open an issue](https://github.com/addargBackup/txline-kit/issues) —
+the kit's tests will usually catch it first.*
