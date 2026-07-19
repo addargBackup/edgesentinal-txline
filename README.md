@@ -4,6 +4,16 @@
 [TxLINE](https://txline.txodds.com) feeds — with a measured answer to one
 question: how fast does StablePrice consensus absorb a goal?**
 
+**🔴 Live now:** [edgesentinel-agent.onrender.com](https://edgesentinel-agent.onrender.com) —
+autonomous, unattended, trading paper positions against the real 2026 World
+Cup Final on TxLINE's live devnet feed right now.
+
+**📄 [Full technical documentation](docs/README.md)** — the Poisson/Skellam
+model in full, all three strategies, shock convergence measurement,
+tamper-evident commitments (with a real verified devnet transaction),
+Merkle-proof settlement verification, the staleness incident, architecture,
+and the judge runbook.
+
 Not a bot with a green P&L screenshot. A framework that runs three strategies
 on identical data, measures the market microstructure it's trading against,
 commits every decision hash to Solana devnet at decision time (it cannot
@@ -62,6 +72,13 @@ wallet at `../.keys/devnet-wallet.json`.
 - [x] Backtest on two real recorded matches → generated RESULTS/CONVERGENCE
 - [x] Staleness guard (born from a real incident: a stale corpus quote
       produced a fictitious 0.96 gap — now untradeable by construction)
-- [ ] Dashboard verified against a live run (written; verify during next live
-      match window) · docker-compose · Memo commitments exercised end-to-end
+- [x] Dashboard verified live: deployed to Render (compiled with tsc, run
+      under plain node — tsx's native esbuild dependency doesn't survive
+      Render's runtime), tracking the real World Cup Final within seconds of
+      deploy. A separate long-running local instance has traded live across
+      the entire back half of the tournament (6 real fixtures, 26 shocks,
+      real strategy P&L — see docs/README.md §10)
+- [x] Memo commitments exercised end-to-end on devnet: real decision hashed
+      and committed, signature verifiable on-chain (docs/README.md §6)
+- [ ] docker-compose
 # edgesentinal-txline
