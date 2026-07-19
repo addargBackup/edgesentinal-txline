@@ -127,9 +127,27 @@ export class AuthManager {
       );
     }
 
+    // Plain wallet-interface object, not `new anchor.Wallet(wallet)`: Anchor's
+    // Wallet class doesn't survive some ESM/webpack bundling (e.g. Next.js on
+    // Vercel) — "Wallet is not a constructor" at runtime. This provider only
+    // ever signs the subscribe tx below, so a minimal object satisfying
+    // AnchorProvider's wallet interface is all that's needed.
+    const providerWallet = {
+      publicKey: wallet.publicKey,
+      signTransaction: async <T>(tx: T) => {
+        (tx as unknown as { partialSign: (...s: InstanceType<typeof web3.Keypair>[]) => void }).partialSign(wallet);
+        return tx;
+      },
+      signAllTransactions: async <T>(txs: T[]) => {
+        for (const tx of txs) {
+          (tx as unknown as { partialSign: (...s: InstanceType<typeof web3.Keypair>[]) => void }).partialSign(wallet);
+        }
+        return txs;
+      },
+    };
     const provider = new anchor.AnchorProvider(
       connection,
-      new anchor.Wallet(wallet),
+      providerWallet as never,
       anchor.AnchorProvider.defaultOptions(),
     );
     const program = new anchor.Program(loadTxoracleIdl(cfg.name as "devnet" | "mainnet"), provider);

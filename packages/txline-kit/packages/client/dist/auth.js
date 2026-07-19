@@ -102,7 +102,25 @@ export class AuthManager {
             throw new TxlineAuthError(`Wallet ${wallet.publicKey.toBase58()} has 0 SOL on ${cfg.name}; it must pay ` +
                 `transaction fees + rent. Fund it (devnet: https://faucet.solana.com) and retry.`);
         }
-        const provider = new anchor.AnchorProvider(connection, new anchor.Wallet(wallet), anchor.AnchorProvider.defaultOptions());
+        // Plain wallet-interface object, not `new anchor.Wallet(wallet)`: Anchor's
+        // Wallet class doesn't survive some ESM/webpack bundling (e.g. Next.js on
+        // Vercel) — "Wallet is not a constructor" at runtime. This provider only
+        // ever signs the subscribe tx below, so a minimal object satisfying
+        // AnchorProvider's wallet interface is all that's needed.
+        const providerWallet = {
+            publicKey: wallet.publicKey,
+            signTransaction: async (tx) => {
+                tx.partialSign(wallet);
+                return tx;
+            },
+            signAllTransactions: async (txs) => {
+                for (const tx of txs) {
+                    tx.partialSign(wallet);
+                }
+                return txs;
+            },
+        };
+        const provider = new anchor.AnchorProvider(connection, providerWallet, anchor.AnchorProvider.defaultOptions());
         const program = new anchor.Program(loadTxoracleIdl(cfg.name), provider);
         const tokenMint = new web3.PublicKey(cfg.tokenMint);
         const userTokenAccountAddress = spl.getAssociatedTokenAddressSync(tokenMint, wallet.publicKey, false, spl.TOKEN_2022_PROGRAM_ID);
