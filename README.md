@@ -64,3 +64,4 @@ wallet at `../.keys/devnet-wallet.json`.
       produced a fictitious 0.96 gap — now untradeable by construction)
 - [ ] Dashboard verified against a live run (written; verify during next live
       match window) · docker-compose · Memo commitments exercised end-to-end
+# edgesentinal-txline
