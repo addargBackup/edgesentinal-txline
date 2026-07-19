@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: edgesentinel-agent
+    runtime: node
+    plan: free
+    buildCommand: npm install -g pnpm@10 && pnpm install && pnpm --filter edgesentinel-agent rebuild better-sqlite3 && npx tsc -p agent/tsconfig.json
+    startCommand: node agent/dist/index.js
+    envVars:
+      - key: TXLINE_API_TOKEN
+        sync: false
+      - key: NODE_VERSION
+        value: 22.14.0
