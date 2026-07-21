@@ -7,6 +7,7 @@
   "license": "MIT",
   "scripts": {
     "agent": "tsx agent/src/index.ts",
+    "demo-loop": "tsx agent/src/demo-loop.ts",
     "backtest": "tsx agent/src/backtest.ts",
     "verify-commitments": "tsx agent/src/verify-commitments.ts",
     "test": "vitest run"

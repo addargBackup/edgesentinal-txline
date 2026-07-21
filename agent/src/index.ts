@@ -54,7 +54,10 @@ async function supervise(name: string, loop: () => Promise<void>): Promise<void>
   }
 }
 
-async function main() {
+let started = false;
+export async function main() {
+  if (started) return; // guards against double-invocation (e.g. demo-loop.ts calling
+  started = true;       // main() explicitly on top of any auto-run import side effect)
   await api.auth.ensureActivated();
   log(`EdgeSentinel up (${replayBase ? "REPLAY " + replayBase : "devnet live"})`, {
     killSwitch: process.env.KILL_SWITCH === "1", commit: cfg.commitDecisions,
